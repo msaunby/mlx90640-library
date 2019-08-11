@@ -17,13 +17,15 @@
 #include "headers/MLX90640_API.h"
 #include "lib/fb.h"
 
+//#include <mcheck.h>
+
 #define MLX_I2C_ADDR 0x33
 
 #define IMAGE_SCALE 1
 
 // Valid frame rates are 1, 2, 4, 8, 16, 32 and 64
 // The i2c baudrate is set to 1mhz to support these
-#define FPS 4
+#define FPS 2
 #define FRAME_TIME_MICROS (1000000/FPS)
 
 // Despite the framerate being ostensibly FPS hz
@@ -145,6 +147,30 @@ int main(){
     float eTa;
     static uint16_t data[768*sizeof(float)];
 
+    // Must ensure only one copy of this program runs at a time.
+
+     	                 /* l_type   l_whence  l_start  l_len  l_pid   */
+    struct flock fl = { F_WRLCK, SEEK_SET, 0,       0,     0 };
+    int fd;
+    
+    fl.l_pid = getpid();
+    
+    if ((fd = open("mmap.lock", O_RDWR)) == -1) {
+    	perror("open");
+        if ((fd = open("mmap.lock", O_RDWR|O_CREAT)) == -1) {
+            exit(1);
+        }
+    }
+    
+    // Use F_SETLKW is waiting required.
+    if (fcntl(fd, F_SETLK, &fl) == -1) {
+    	perror("fcntl");
+    	exit(1);
+    }
+
+    //printf("locked\n");
+    
+    //mtrace();
 
     map = (char *)prepare_mmap(FILEPATH, FILESIZERGB);
     fltmap = (float *)prepare_mmap(FILEPATHFLT, FILESIZEFLT);
@@ -185,18 +211,15 @@ int main(){
     MLX90640_DumpEE(MLX_I2C_ADDR, eeMLX90640);
     MLX90640_ExtractParameters(eeMLX90640, &mlx90640);
 
-    //fb_init();
-
     while (1){
-        auto start = std::chrono::system_clock::now();
+    //for(int test_i = 0; test_i < 10; test_i++){
+
+        //auto start = std::chrono::system_clock::now();
         MLX90640_GetFrameData(MLX_I2C_ADDR, frame);
         MLX90640_InterpolateOutliers(frame, eeMLX90640);
 
         eTa = MLX90640_GetTa(frame, &mlx90640);
         MLX90640_CalculateTo(frame, &mlx90640, emissivity, eTa, mlx90640To);
-
-        //sprintf(filename, "frame%03d.bin", frame_num++);
-	//binfile = fopen(filename, "wb");
 
         for(int y = 0; y < 24; y++){
             for(int x = 0; x < 32; x++){
@@ -204,14 +227,11 @@ int main(){
                 put_pixel_false_colour((y*IMAGE_SCALE), (x*IMAGE_SCALE), val);
             }
         }
-	//printf("\n%s\n", filename);
-	//fclose(binfile);
 
-        auto end = std::chrono::system_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        std::this_thread::sleep_for(std::chrono::microseconds(frame_time - elapsed));
+        //auto end = std::chrono::system_clock::now();
+        //auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        //std::this_thread::sleep_for(std::chrono::microseconds(frame_time - elapsed));
+        std::this_thread::sleep_for(std::chrono::microseconds(frame_time));
     }
-
-    fb_cleanup();
     return 0;
 }

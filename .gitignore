@@ -13,3 +13,4 @@ bcm2835-*
 *.py[cod]
 python/build
 python/dist
+mmap.lock
