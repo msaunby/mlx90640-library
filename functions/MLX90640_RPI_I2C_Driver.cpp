@@ -30,8 +30,15 @@ int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddr
     if(!init){
         bcm2835_init();
     	bcm2835_i2c_begin();
-	bcm2835_i2c_set_baudrate(400000);
-	init = 1;
+	    //bcm2835_i2c_set_baudrate(400000);
+        // Lower speed works, but still tends 
+        // to freeze.
+        //bcm2835_i2c_set_baudrate(100000);
+        // A very low speed, 40k is reliable for many hours.  So far this 
+        // has not failed.
+        //bcm2835_i2c_set_baudrate(40000);
+        bcm2835_i2c_set_baudrate(80000);
+	    init = 1;
     }
 
     int result;

@@ -32,7 +32,8 @@
 // The frame is often not ready in time
 // This offset is added to the FRAME_TIME_MICROS
 // to account for this.
-#define OFFSET_MICROS 850
+//#define OFFSET_MICROS 850
+#define OFFSET_MICROS 8500
 
 int frame_num = 0;
 
@@ -40,6 +41,7 @@ FILE *binfile;
 #define FILESIZERGB (32*24*3)
 #define FILESIZEFLT (32*24*sizeof(float))
 #define FILEPATH "/run/mlx90640-0.rgb"
+#define FILELOCK "/run/mlx90640-0.lock"
 #define FILEPATHFLT "/run/mlx90640-0.flt"
 
 int fd;
@@ -155,9 +157,9 @@ int main(){
     
     fl.l_pid = getpid();
     
-    if ((fd = open("mmap.lock", O_RDWR)) == -1) {
+    if ((fd = open(FILELOCK, O_RDWR)) == -1) {
     	perror("open");
-        if ((fd = open("mmap.lock", O_RDWR|O_CREAT)) == -1) {
+        if ((fd = open(FILELOCK, O_RDWR|O_CREAT)) == -1) {
             exit(1);
         }
     }
@@ -214,8 +216,13 @@ int main(){
     while (1){
     //for(int test_i = 0; test_i < 10; test_i++){
 
-        //auto start = std::chrono::system_clock::now();
+        auto start = std::chrono::system_clock::now();
+        //auto start = std::chrono::high_resolution_clock::now();
+
+        //printf("A\n");
         MLX90640_GetFrameData(MLX_I2C_ADDR, frame);
+
+        //printf("B\n");
         MLX90640_InterpolateOutliers(frame, eeMLX90640);
 
         eTa = MLX90640_GetTa(frame, &mlx90640);
@@ -232,6 +239,8 @@ int main(){
         //auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
         //std::this_thread::sleep_for(std::chrono::microseconds(frame_time - elapsed));
         std::this_thread::sleep_for(std::chrono::microseconds(frame_time));
+        //auto end = std::chrono::system_clock::now();
+        //auto end = std::chrono::high_resolution_clock::now();
     }
     return 0;
 }
