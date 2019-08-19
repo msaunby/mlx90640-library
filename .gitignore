@@ -16,3 +16,5 @@ bcm2835-*
 *.py[cod]
 python/library/build
 python/library/dist
+examples/mmap
+examples/mmap.lock

@@ -17,6 +17,8 @@
 #include "headers/MLX90640_API.h"
 #include "lib/fb.h"
 
+//#include <mcheck.h>
+
 #define MLX_I2C_ADDR 0x33
 
 #define IMAGE_SCALE 1
@@ -35,83 +37,58 @@
 int frame_num = 0;
 
 FILE *binfile;
-#define FILESIZE (32*24*3)
-#define FILEPATH "/var/ram/tir.bin"
+#define FILESIZERGB (32*24*3)
+#define FILESIZEFLT (32*24*sizeof(float))
+#define FILEPATH "/run/mlx90640-0.rgb"
+#define FILEPATHFLT "/run/mlx90640-0.flt"
 
 int fd;
 char *map;
+float *fltmap;
 
-void prepare_mmap() {
+void *prepare_mmap(const char filepath[], long filesize) {
     int i;
     int result;
+    void *map;
 
-    /* Open a file for writing.
-     *  - Creating the file if it doesn't exist.
-     *  - Truncating it to 0 size if it already exists. (not really needed)
-     *
-     * Note: "O_WRONLY" mode is not sufficient when mmaping.
-     */
-    fd = open(FILEPATH, O_RDWR | O_CREAT | O_TRUNC, (mode_t)0666);
+    fd = open(filepath, O_RDWR | O_CREAT | O_TRUNC, (mode_t)0666);
     if (fd == -1) {
-	perror("Error opening file for writing");
+	perror("Error opening file");
 	exit(EXIT_FAILURE);
     }
 
-    /* Stretch the file size to the size of the (mmapped) array of ints
-     */
-    result = lseek(fd, FILESIZE-1, SEEK_SET);
+    result = lseek(fd, filesize-1, SEEK_SET);
     if (result == -1) {
 	close(fd);
-	perror("Error calling lseek() to 'stretch' the file");
+	perror("Error calling lseek()");
 	exit(EXIT_FAILURE);
     }
 
-    /* Something needs to be written at the end of the file to
-     * have the file actually have the new size.
-     * Just writing an empty string at the current file position will do.
-     *
-     * Note:
-     *  - The current position in the file is at the end of the stretched 
-     *    file due to the call to lseek().
-     *  - An empty string is actually a single '\0' character, so a zero-byte
-     *    will be written at the last byte of the file.
-     */
     result = write(fd, "", 1);
     if (result != 1) {
 	close(fd);
-	perror("Error writing last byte of the file");
+	perror("Error preparing file");
 	exit(EXIT_FAILURE);
     }
 
-    /* Now the file is ready to be mmapped.
-     */
-    map = (char *)mmap(0, FILESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    map = mmap(0, filesize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (map == MAP_FAILED) {
 	close(fd);
 	perror("Error mmapping the file");
 	exit(EXIT_FAILURE);
     }
-    
-    /* Now wrie to the file as if it were memory.
-     */
-    for (i = 1; i <=FILESIZE; ++i) {
-	map[i] = i; 
-    }
 
-    return;
+    return map;
 }
 
 
-void close_mmap(){
+void close_mmap(char *map, long filesize){
     /* Don't forget to free the mmapped memory
      */
-    if (munmap(map, FILESIZE) == -1) {
+    if (munmap(map, filesize) == -1) {
 	perror("Error un-mmapping the file");
-	/* Decide here whether to close(fd) and exit() or not. Depends... */
     }
 
-    /* Un-mmaping doesn't close the file, so we still need to do that.
-     */
     close(fd);
     return;
 }
@@ -125,6 +102,7 @@ void put_pixel_false_colour(int x, int y, double v) {
     float vmin = 5.0;
     float vmax = 50.0;
     float vrange = vmax-vmin;
+    float rawpix = v;
     v -= vmin;
     v /= vrange;
     if(v <= 0) {idx1=idx2=0;}
@@ -157,9 +135,8 @@ void put_pixel_false_colour(int x, int y, double v) {
     map[(y + x * 32) * 3 + 1] = ig;
     map[(y + x * 32) * 3 + 2] = ib;
 
+    fltmap[y + x * 32] = rawpix;
 }
-
-char filename[20];
 
 int main(){
     static uint16_t eeMLX90640[832];
@@ -170,8 +147,33 @@ int main(){
     float eTa;
     static uint16_t data[768*sizeof(float)];
 
+    // Must ensure only one copy of this program runs at a time.
 
-    prepare_mmap();
+     	                 /* l_type   l_whence  l_start  l_len  l_pid   */
+    struct flock fl = { F_WRLCK, SEEK_SET, 0,       0,     0 };
+    int fd;
+    
+    fl.l_pid = getpid();
+    
+    if ((fd = open("mmap.lock", O_RDWR)) == -1) {
+    	perror("open");
+        if ((fd = open("mmap.lock", O_RDWR|O_CREAT)) == -1) {
+            exit(1);
+        }
+    }
+    
+    // Use F_SETLKW is waiting required.
+    if (fcntl(fd, F_SETLK, &fl) == -1) {
+    	perror("fcntl");
+    	exit(1);
+    }
+
+    //printf("locked\n");
+    
+    //mtrace();
+
+    map = (char *)prepare_mmap(FILEPATH, FILESIZERGB);
+    fltmap = (float *)prepare_mmap(FILEPATHFLT, FILESIZEFLT);
 
     auto frame_time = std::chrono::microseconds(FRAME_TIME_MICROS + OFFSET_MICROS);
 
@@ -209,18 +211,15 @@ int main(){
     MLX90640_DumpEE(MLX_I2C_ADDR, eeMLX90640);
     MLX90640_ExtractParameters(eeMLX90640, &mlx90640);
 
-    //fb_init();
-
     while (1){
-        auto start = std::chrono::system_clock::now();
+    //for(int test_i = 0; test_i < 10; test_i++){
+
+        //auto start = std::chrono::system_clock::now();
         MLX90640_GetFrameData(MLX_I2C_ADDR, frame);
         MLX90640_InterpolateOutliers(frame, eeMLX90640);
 
         eTa = MLX90640_GetTa(frame, &mlx90640);
         MLX90640_CalculateTo(frame, &mlx90640, emissivity, eTa, mlx90640To);
-
-        //sprintf(filename, "frame%03d.bin", frame_num++);
-	//binfile = fopen(filename, "wb");
 
         for(int y = 0; y < 24; y++){
             for(int x = 0; x < 32; x++){
@@ -228,14 +227,11 @@ int main(){
                 put_pixel_false_colour((y*IMAGE_SCALE), (x*IMAGE_SCALE), val);
             }
         }
-	//printf("\n%s\n", filename);
-	//fclose(binfile);
 
-        auto end = std::chrono::system_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        std::this_thread::sleep_for(std::chrono::microseconds(frame_time - elapsed));
+        //auto end = std::chrono::system_clock::now();
+        //auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        //std::this_thread::sleep_for(std::chrono::microseconds(frame_time - elapsed));
+        std::this_thread::sleep_for(std::chrono::microseconds(frame_time));
     }
-
-    fb_cleanup();
     return 0;
 }
