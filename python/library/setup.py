@@ -9,7 +9,7 @@ from setuptools.command.sdist import sdist
 from distutils.spawn import find_executable
 from glob import glob
 
-sources = ['../functions/MLX90640_API.cpp', 'mlx90640-python.cpp']
+sources = ['../../functions/MLX90640_API.cpp', 'mlx90640-python.cpp']
 # If we have swig, use it.  Otherwise, use the pre-generated
 # wrapper from the source distribution.
 if find_executable('swig'):
@@ -25,8 +25,6 @@ else:
     sys.exit(1)
 
 # Fix so that build_ext runs before build_py
-# Without this, wiringpi.py is generated too late and doesn't
-# end up in the distribution when running setup.py bdist or bdist_wheel.
 # Based on:
 #  https://stackoverflow.com/a/29551581/7938656
 #  and
@@ -37,7 +35,7 @@ class build_py_ext_first(build_py):
         return build_py.run(self)
 
 
-# Make sure wiringpi_wrap.c is available for the source dist, also.
+# Make sure MLX90640_wrap.c is available for the source dist, also.
 class sdist_ext_first(sdist):
     def run(self):
         self.run_command("build_ext")
@@ -55,7 +53,7 @@ classifiers = ['Development Status :: 4 - Beta',
 
 _MLX90640 = Extension(
     '_MLX90640',
-    include_dirs=['../headers'],
+    include_dirs=['../../headers'],
     sources=sources,
     swig_opts=['-threads'],
     extra_link_args=['-lbcm2835']

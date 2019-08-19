@@ -3123,8 +3123,8 @@ namespace swig {
 
 
 int setup(int fps);
-void cleanup();
-float * get_frame();
+void cleanup(void);
+float * get_frame(void);
 
 
 #include <limits.h>

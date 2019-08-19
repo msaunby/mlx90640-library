@@ -7,10 +7,14 @@
 #include <math.h>
 #include "headers/MLX90640_API.h"
 #include "lib/fb.h"
+#include "lib/interpolate.h"
 
 #define MLX_I2C_ADDR 0x33
 
-#define IMAGE_SCALE 5
+#define IMAGE_SCALE 4
+
+#define OUTPUT_W (int)(24*2)
+#define OUTPUT_H (int)(32*2)
 
 // Valid frame rates are 1, 2, 4, 8, 16, 32 and 64
 // The i2c baudrate is set to 1mhz to support these
@@ -63,6 +67,7 @@ int main(){
     float emissivity = 1;
     uint16_t frame[834];
     static float image[768];
+    static float resized[OUTPUT_W * OUTPUT_H];
     static float mlx90640To[768];
     float eTa;
     static uint16_t data[768*sizeof(float)];
@@ -102,20 +107,23 @@ int main(){
     paramsMLX90640 mlx90640;
     MLX90640_DumpEE(MLX_I2C_ADDR, eeMLX90640);
     MLX90640_ExtractParameters(eeMLX90640, &mlx90640);
-
     fb_init();
 
     while (1){
         auto start = std::chrono::system_clock::now();
         MLX90640_GetFrameData(MLX_I2C_ADDR, frame);
-        MLX90640_InterpolateOutliers(frame, eeMLX90640);
-
+        // MLX90640_InterpolateOutliers(frame, eeMLX90640);
         eTa = MLX90640_GetTa(frame, &mlx90640);
         MLX90640_CalculateTo(frame, &mlx90640, emissivity, eTa, mlx90640To);
 
-        for(int y = 0; y < 24; y++){
-            for(int x = 0; x < 32; x++){
-                float val = mlx90640To[32 * (23-y) + x];
+        MLX90640_BadPixelsCorrection((&mlx90640)->brokenPixels, mlx90640To, 1, &mlx90640);
+        MLX90640_BadPixelsCorrection((&mlx90640)->outlierPixels, mlx90640To, 1, &mlx90640);
+
+        interpolate_image(mlx90640To, 24, 32, resized, OUTPUT_W, OUTPUT_H);
+
+        for(int y = 0; y < OUTPUT_W; y++){
+            for(int x = 0; x < OUTPUT_H; x++){
+                float val = resized[OUTPUT_H * (OUTPUT_W-1-y) + x];
                 put_pixel_false_colour((y*IMAGE_SCALE), (x*IMAGE_SCALE), val);
             }
         }
